@@ -16,6 +16,18 @@ from the bytes on disk plus optional reputation lookups.
 
 ## Setup
 
+One command on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+It creates `.venv` with Python 3.11 or 3.12, installs the dev dependencies, enables the
+pre-commit secret guard and copies `.env.example` to `.env`. Re-running it is safe;
+`-Recreate` rebuilds the venv and `-Python` pins a specific interpreter.
+
+By hand:
+
 ```bash
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1      # Windows PowerShell
