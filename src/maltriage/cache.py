@@ -77,7 +77,11 @@ class Cache:
             return
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(path) if path else ":memory:", check_same_thread=False)
+        # A longer busy timeout keeps parallel worker processes from failing with
+        # "database is locked" when they write at the same moment.
+        self._conn = sqlite3.connect(
+            str(path) if path else ":memory:", check_same_thread=False, timeout=30
+        )
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL")

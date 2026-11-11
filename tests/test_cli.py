@@ -63,6 +63,58 @@ def test_db_stats(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0, result.stdout
 
 
+def test_batch_jobs_scans_every_file_in_order(tmp_path: Path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    for index in range(5):
+        (inbox / f"sample{index}.txt").write_bytes(EICAR + f"#{index}".encode())
+
+    result = CliRunner().invoke(
+        app, ["batch", str(inbox), "--offline", "--jobs", "3", "--format", "json"]
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "3 worker(s)" in result.stdout
+
+    reports = sorted((tmp_path / "out").glob("*.json"))
+    assert len(reports) == 5, result.stdout
+    digests = {json.loads(path.read_text())["file"]["sha256"] for path in reports}
+    assert len(digests) == 5, "every file must get its own report"
+
+    positions = [result.stdout.find(f"sample{index}.txt") for index in range(5)]
+    assert all(position >= 0 for position in positions), result.stdout
+    assert positions == sorted(positions), "rows must keep the input order"
+
+
+def test_batch_parallel_matches_serial_scores(tmp_path: Path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    for index in range(4):
+        (inbox / f"sample{index}.txt").write_bytes(EICAR + f"#{index}".encode())
+
+    def scores(jobs: str, out: str) -> dict[str, int]:
+        result = CliRunner().invoke(
+            app,
+            ["batch", str(inbox), "--offline", "--jobs", jobs, "--format", "json", "-o", out],
+        )
+        assert result.exit_code == 0, result.stdout
+        payloads = [json.loads(path.read_text()) for path in (tmp_path / out).glob("*.json")]
+        assert len(payloads) == 4
+        return {p["file"]["name"]: p["verdict"]["score"] for p in payloads}
+
+    assert scores("1", "serial") == scores("4", "parallel")
+
+
+def test_batch_jobs_must_be_positive(tmp_path: Path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "sample.txt").write_bytes(EICAR)
+    result = CliRunner().invoke(app, ["batch", str(inbox), "--jobs", "0"])
+    assert result.exit_code == 2
+
+
 def test_vt_check_requires_key(tmp_path: Path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     monkeypatch.delenv("VT_API_KEY", raising=False)
