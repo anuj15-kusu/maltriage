@@ -1,0 +1,28 @@
+#!/bin/sh
+# Refuse a commit that would publish a credential.
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+#
+# Bypass for a single commit only when you are certain it is a false positive:
+#   git commit --no-verify
+#
+# The guard is standard library only, so this works before `pip install`.
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+
+python_bin=""
+for candidate in python3 python py; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        python_bin=$candidate
+        break
+    fi
+done
+
+if [ -z "$python_bin" ]; then
+    echo "pre-commit: no python interpreter found; the secret guard did not run" >&2
+    exit 0
+fi
+
+exec "$python_bin" "$root/tools/secret_guard.py"

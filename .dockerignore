@@ -31,7 +31,10 @@ htmlcov/
 # Not needed at runtime
 tests/
 docs/
+tools/
+.githooks/
 .github/
+.gitattributes
 Dockerfile
 docker-compose.yml
 .dockerignore

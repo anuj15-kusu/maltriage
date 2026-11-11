@@ -107,6 +107,35 @@ Notes:
 - `--read-only` needs the `/tmp` tmpfs (already in the compose file) because Python
   writes temp files there.
 
+## Guardrails
+
+### The key guard
+
+`tools/secret_guard.py` fails when a credential-shaped value reaches a file git
+tracks: a filled `.env.example`, a `.env` that got committed, or a key pasted into a
+config, comment or source file. It uses only the standard library, prints
+`file:line variable` and never the value itself, so its output is safe in CI logs.
+
+The same scan runs as `tests/test_secret_guard.py`, so the test suite and the hook
+share one implementation.
+
+### Pre-commit hook
+
+Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Every commit then runs the guard before it is created, so a leaked key never
+reaches history. `git commit --no-verify` skips it for one commit.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs `ruff` and `pytest` on Python 3.11 and 3.12, then
+builds the container, asserts it runs as uid 10001, triages a sample with the
+hardened run flags and checks the report it wrote back to the host.
+
 ## Safety
 
 Run only on samples you are authorized to analyse. Never commit live malware;

@@ -1,0 +1,4 @@
+# Hooks must survive a Windows checkout with core.autocrlf=true: a CRLF shebang
+# makes sh fail before the guard ever runs.
+.githooks/* text eol=lf
+*.sh text eol=lf
