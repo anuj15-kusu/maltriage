@@ -59,6 +59,19 @@ maltriage vt check <sha256-or-file>
 The tool only ever looks up a hash. It uploads a sample to VirusTotal **only** when you
 pass `--submit`, and every response is cached for 7 days, so repeat scans cost no quota.
 
+### Where `.env` is read from
+
+`.env` is resolved against the **project root**, not the directory you happen to run
+the command from, so `maltriage` behaves the same from any folder:
+
+1. `MALTRIAGE_ENV_FILE=/path/to/file` — load exactly this file, skip the search
+2. `MALTRIAGE_PROJECT_ROOT=/path/to/project` — treat this as the project root
+3. otherwise the project root is found by walking up from the installed package and
+   then from the current directory, looking for this project's `pyproject.toml`
+
+The project root's `.env` wins over a `.env` in the working directory, and OS
+environment variables win over both. `maltriage doctor` prints the file it loaded.
+
 ## Safety
 
 Run only on samples you are authorized to analyse. Never commit live malware;

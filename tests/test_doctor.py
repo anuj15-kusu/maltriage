@@ -125,3 +125,21 @@ def test_api_check_bypasses_the_cache(tmp_path: Path, monkeypatch):
     api = next(c for c in run_checks(settings, check_api=True) if c.name == "VirusTotal API")
     assert api.status == OK
     assert calls["count"] == 1, "doctor must not answer from cache"
+
+
+def test_config_file_check_reports_the_loaded_env(tmp_path: Path, monkeypatch):
+    custom = tmp_path / "real.env"
+    custom.write_text("VT_API_KEY=dummy\n", encoding="utf-8")
+    monkeypatch.setenv("MALTRIAGE_ENV_FILE", str(custom))
+
+    check = next(c for c in run_checks(_settings(tmp_path)) if c.name == "Config file")
+    assert check.status == OK
+    assert str(custom) in check.detail
+
+
+def test_config_file_check_warns_when_missing(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("MALTRIAGE_ENV_FILE", str(tmp_path / "absent.env"))
+
+    check = next(c for c in run_checks(_settings(tmp_path)) if c.name == "Config file")
+    assert check.status == WARN
+    assert "no .env found" in check.detail

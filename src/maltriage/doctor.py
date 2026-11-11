@@ -34,6 +34,7 @@ def run_checks(settings: Settings, *, check_api: bool = False) -> list[Check]:
         _python_check(),
         _package_check(),
         _mode_check(settings),
+        _config_file_check(),
         _key_check("VT_API_KEY", settings.vt_api_key),
         _key_check("MB_AUTH_KEY", settings.mb_auth_key),
         _rules_check(settings),
@@ -62,6 +63,22 @@ def _package_check() -> Check:
 def _mode_check(settings: Settings) -> Check:
     mode = "offline (no external calls)" if settings.offline else "online"
     return Check("Mode", OK, f"{mode}, max file {settings.max_file_mb} MiB")
+
+
+def _config_file_check() -> Check:
+    from maltriage.config import env_files, find_project_root
+
+    files = env_files()
+    existing = [path for path in files if path.is_file()]
+    root = find_project_root()
+    root_label = str(root) if root else "not detected"
+    if not existing:
+        return Check(
+            "Config file",
+            WARN,
+            f"no .env found ({len(files)} path(s) checked), project root: {root_label}",
+        )
+    return Check("Config file", OK, f"{existing[-1]} (project root: {root_label})")
 
 
 def _key_check(name: str, value: str | None) -> Check:

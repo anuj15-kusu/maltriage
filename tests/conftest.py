@@ -16,6 +16,14 @@ def _reset_settings_cache():
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _ignore_real_dotenv(tmp_path: Path, monkeypatch):
+    """Never read the developer's own .env, which may hold a live API key."""
+    monkeypatch.setenv("MALTRIAGE_ENV_FILE", str(tmp_path / "absent.env"))
+    monkeypatch.delenv("MALTRIAGE_PROJECT_ROOT", raising=False)
+    yield
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
