@@ -1,0 +1,39 @@
+# Section names and markers used by packers, protectors and installers.
+# Matched case-insensitively against PE section names and version strings.
+signatures:
+  - name: UPX
+    markers: ["UPX0", "UPX1", "UPX2", "UPX!"]
+  - name: ASPack
+    markers: [".aspack", ".adata", "ASPack"]
+  - name: FSG
+    markers: [".FSG!"]
+  - name: MPRESS
+    markers: [".MPRESS1", ".MPRESS2"]
+  - name: PECompact
+    markers: ["PECompact2", "PEC2"]
+  - name: Petite
+    markers: [".petite"]
+  - name: Themida / WinLicense
+    markers: [".themida", ".winlice", "Themida"]
+  - name: VMProtect
+    markers: [".vmp0", ".vmp1", ".vmp2", "VMProtect"]
+  - name: Enigma Protector
+    markers: [".enigma1", ".enigma2"]
+  - name: Obsidium
+    markers: [".obfuscat"]
+  - name: .NET Reactor
+    markers: [".reactor", "Reactorer"]
+  - name: ConfuserEx
+    markers: ["ConfusedByAttribute"]
+  - name: PyInstaller
+    markers: ["pyinstaller", "MEIPASS", "PYZ-00.pyz"]
+  - name: Nuitka
+    markers: ["nuitka"]
+  - name: AutoIt
+    markers: ["AU3!EA06", "AutoIt"]
+  - name: NSIS installer
+    markers: ["Nullsoft.NSIS", "NSIS Error"]
+
+# Entropy above this value on a large section is treated as packed/encrypted.
+high_entropy_threshold: 7.2
+min_packed_section_size: 4096

@@ -1,0 +1,95 @@
+# Scoring configuration. Edit points here, never in code.
+bands:
+  suspicious: 20
+  likely_malicious: 50
+  malicious: 80
+
+# Positive points are capped per category so one noisy signal cannot dominate.
+caps:
+  enrichment: 40
+  yara: 30
+  static: 60
+
+signals:
+  vt_malicious_high:
+    points: 35
+    category: enrichment
+    label: "VirusTotal: 10 or more engines flag the file"
+  vt_malicious_low:
+    points: 20
+    category: enrichment
+    label: "VirusTotal: 1-9 engines flag the file"
+  vt_known_good:
+    points: -15
+    category: enrichment
+    label: "VirusTotal: no detections across engines"
+  mb_family_match:
+    points: 15
+    category: enrichment
+    label: "MalwareBazaar: sample is a known family member"
+
+  yara_malware:
+    points: 25
+    category: yara
+    label: "YARA: malware family rule matched"
+  yara_suspicious:
+    points: 8
+    category: yara
+    label: "YARA: suspicious behaviour rule matched"
+
+  macro_autoexec:
+    points: 20
+    category: static
+    label: "VBA macro with auto-exec trigger"
+  macro_present:
+    points: 8
+    category: static
+    label: "VBA macro present"
+  injection_api_combo:
+    points: 20
+    category: static
+    label: "Process injection API combination"
+  packed_high_entropy:
+    points: 15
+    category: static
+    label: "Packed or high-entropy sections"
+  packer_signature:
+    points: 12
+    category: static
+    label: "Known packer or protector signature"
+  unsigned_pe_network:
+    points: 10
+    category: static
+    label: "Unsigned PE that imports network APIs"
+  lolbin_download:
+    points: 12
+    category: static
+    label: "Downloader or LOLBin command line"
+  pdf_active_content:
+    points: 15
+    category: static
+    label: "PDF with JavaScript or launch action"
+  ooxml_remote_template:
+    points: 18
+    category: static
+    label: "Office file pulls a remote template"
+  embedded_executable:
+    points: 12
+    category: static
+    label: "Embedded executable or payload inside the file"
+  ioc_public_endpoint:
+    points: 8
+    category: static
+    label: "Hardcoded URL or public IP address"
+  type_mismatch:
+    points: 6
+    category: static
+    label: "Extension does not match the actual content"
+  archive_bomb:
+    points: 10
+    category: static
+    label: "Archive exhibits bomb characteristics"
+  known_good_signer:
+    points: -25
+    category: static
+    label: "Signed by a well-known vendor"

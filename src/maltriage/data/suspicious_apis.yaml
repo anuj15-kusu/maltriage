@@ -1,0 +1,45 @@
+# API pairs/combinations that together indicate process injection or credential theft.
+combos:
+  injection:
+    label: "Process injection API combination"
+    require: ["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread"]
+  apc_injection:
+    label: "APC injection API combination"
+    require: ["QueueUserAPC", "VirtualAllocEx", "WriteProcessMemory"]
+  process_hollowing:
+    label: "Process hollowing API combination"
+    require: ["NtUnmapViewOfSection", "CreateProcess", "SetThreadContext", "ResumeThread"]
+  keylogging:
+    label: "Keylogging API combination"
+    require: ["SetWindowsHookEx", "GetAsyncKeyState"]
+  anti_debug:
+    label: "Anti-debugging API combination"
+    require: ["IsDebuggerPresent", "CheckRemoteDebuggerPresent"]
+
+single:
+  - VirtualProtect
+  - URLDownloadToFileA
+  - URLDownloadToFileW
+  - WinExec
+  - ShellExecuteA
+  - ShellExecuteW
+  - CreateRemoteThread
+  - LoadLibraryA
+  - GetProcAddress
+
+network:
+  - InternetOpenA
+  - InternetOpenW
+  - InternetOpenUrlA
+  - InternetOpenUrlW
+  - InternetReadFile
+  - HttpSendRequestA
+  - HttpSendRequestW
+  - WinHttpOpen
+  - WinHttpConnect
+  - WinHttpSendRequest
+  - WSAStartup
+  - connect
+  - send
+  - recv
+  - gethostbyname

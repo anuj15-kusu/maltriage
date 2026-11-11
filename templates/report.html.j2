@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>maltriage — {{ report.file.name }}</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0 auto; max-width: 1080px; padding: 32px 24px 64px; line-height: 1.55;
+    color: #1b1b1b; background: #fbfbfc;
+  }
+  header { border-bottom: 1px solid #e3e3e8; padding-bottom: 16px; margin-bottom: 24px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 16px; margin: 32px 0 12px; text-transform: uppercase; letter-spacing: .06em; color: #555; }
+  .muted { color: #6b6b76; font-size: 13px; }
+  .verdict {
+    display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap;
+    background: #fff; border: 1px solid #e3e3e8; border-left: 6px solid #666;
+    border-radius: 8px; padding: 18px 22px;
+  }
+  .verdict .band { font-size: 15px; font-weight: 700; letter-spacing: .08em; }
+  .verdict .score { font-size: 34px; font-weight: 700; line-height: 1; }
+  .verdict .score span { font-size: 14px; color: #8a8a95; font-weight: 400; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e3e3e8;
+          border-radius: 8px; overflow: hidden; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #eeeef2; vertical-align: top; }
+  th { background: #f4f4f7; font-weight: 600; font-size: 12px; text-transform: uppercase;
+       letter-spacing: .05em; color: #555; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  pre { background: #f6f6f9; border: 1px solid #e8e8ee; border-radius: 6px; padding: 10px 12px;
+        overflow-x: auto; margin: 8px 0 0; }
+  .finding { background: #fff; border: 1px solid #e3e3e8; border-radius: 8px; padding: 14px 16px;
+             margin-bottom: 12px; }
+  .row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .sev { color: #fff; font-size: 11px; font-weight: 700; text-transform: uppercase;
+         padding: 2px 7px; border-radius: 4px; letter-spacing: .04em; }
+  .finding p { margin: 8px 0 0; font-size: 14px; color: #333; }
+  .empty { background: #fff; border: 1px dashed #d5d5dd; border-radius: 8px; padding: 16px;
+           color: #777; font-size: 14px; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e3e3e8;
+           font-size: 12px; color: #7a7a85; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Static triage report</h1>
+  <div class="muted">
+    {{ report.file.name }} · {{ report.file.kind.value }} · generated
+    {{ report.generated_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+  </div>
+</header>
+
+<section class="verdict" style="border-left-color: {{ band_colors.get(report.verdict.band, '#666') }}">
+  <div class="band" style="color: {{ band_colors.get(report.verdict.band, '#666') }}">
+    {{ report.verdict.band | replace('_', ' ') | upper }}
+  </div>
+  <div class="score">{{ report.verdict.score }}<span>/100</span></div>
+  <div class="muted">confidence {{ '%.2f' | format(report.verdict.confidence) }}</div>
+</section>
+
+<h2>File</h2>
+<table>
+  <tbody>
+    <tr><th style="width:180px">SHA-256</th><td><code>{{ report.file.sha256 }}</code></td></tr>
+    <tr><th>SHA-1</th><td><code>{{ report.file.sha1 }}</code></td></tr>
+    <tr><th>MD5</th><td><code>{{ report.file.md5 }}</code></td></tr>
+    <tr><th>ssdeep</th><td><code>{{ report.file.ssdeep or '—' }}</code></td></tr>
+    <tr><th>Size</th><td>{{ report.file.size }} bytes</td></tr>
+    <tr><th>Type</th><td>{{ report.file.kind.value }}{% if report.file.magic_note %} — {{ report.file.magic_note }}{% endif %}</td></tr>
+    <tr><th>MIME</th><td>{{ report.file.mime or 'unknown' }}</td></tr>
+    <tr><th>Ruleset</th><td><code>{{ report.ruleset.get('hash') or 'none' }}</code></td></tr>
+  </tbody>
+</table>
+
+<h2>Score breakdown</h2>
+{% if report.verdict.breakdown %}
+<table>
+  <thead><tr><th>Signal</th><th>Category</th><th class="num">Points</th></tr></thead>
+  <tbody>
+  {% for item in report.verdict.breakdown %}
+    <tr>
+      <td>{{ item.label }}</td>
+      <td class="muted">{{ item.category }}</td>
+      <td class="num">{{ '%+d' | format(item.applied_points) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No scoring signals fired.</p>
+{% endif %}
+
+<h2>Findings ({{ findings | length }})</h2>
+{% for finding in findings %}
+<article class="finding">
+  <div class="row">
+    <span class="sev" style="background: {{ sev_colors.get(finding.severity.value, '#666') }}">
+      {{ finding.severity.value }}
+    </span>
+    <strong>{{ finding.title }}</strong>
+    <span class="muted">{{ finding.analyzer }} · confidence {{ '%.2f' | format(finding.confidence) }}</span>
+  </div>
+  {% if finding.description %}<p>{{ finding.description }}</p>{% endif %}
+  {% if finding.evidence %}<pre>{{ finding.evidence | tojson(indent=2) }}</pre>{% endif %}
+</article>
+{% else %}
+<p class="empty">No findings. Static analysis found nothing suspicious.</p>
+{% endfor %}
+
+{% if report.enrichment %}
+<h2>Enrichment</h2>
+<table>
+  <thead><tr><th>Provider</th><th>Status</th><th>Summary</th></tr></thead>
+  <tbody>
+  {% for item in report.enrichment %}
+    <tr>
+      <td>{{ item.provider }}</td>
+      <td class="muted">{{ item.status }}</td>
+      <td>{{ item.summary }}{% if item.link %} · <a href="{{ item.link }}">VirusTotal</a>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Indicators ({{ iocs | length }})</h2>
+{% if iocs %}
+<table>
+  <thead><tr><th style="width:120px">Type</th><th>Value</th></tr></thead>
+  <tbody>
+  {% for ioc in iocs[:200] %}
+    <tr><td class="muted">{{ ioc.type }}</td><td><code>{{ ioc.value }}</code></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if defanged %}<p class="muted">Indicators are defanged for safety.</p>{% endif %}
+{% else %}
+<p class="empty">No indicators extracted.</p>
+{% endif %}
+
+{% if report.errors %}
+<h2>Parser notes</h2>
+<ul class="muted">
+  {% for line in report.errors %}<li>{{ line }}</li>{% endfor %}
+</ul>
+{% endif %}
+
+<footer>
+  maltriage {{ report.tool_version }} · schema {{ report.schema_version }} ·
+  static analysis only, the sample was never executed.
+  {% if report.timings %}· pipeline {{ report.timings.get('total', 0) }}s{% endif %}
+</footer>
+</body>
+</html>

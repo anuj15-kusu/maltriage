@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+.venv_*/
+venv/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Tool output and local state
+out/
+reports/
+demo-reports/
+.cache/
+*.log
+*.zip
+
+# Caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Private / local YARA rules
+rules/local/*
+!rules/local/.gitkeep
+
+# Live malware samples — never commit these
+samples/
+*.exe
+*.dll
+*.sys
+*.scr
+*.docm
+*.xlsm
