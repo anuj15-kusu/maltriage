@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import errno
 from pathlib import Path
+
+import pytest
 
 from maltriage.models import FileKind
 from maltriage.pipeline import Pipeline, ScanOptions
+from maltriage.safety import SafetyError
 
 from .pe_builder import build_pe
-
-EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+from .sample_files import write_eicar
 
 POWERSHELL_LOADER = b"""param($u)
 $wc = New-Object Net.WebClient
@@ -24,8 +27,7 @@ PDF_JS = (
 
 
 def test_eicar_matches_yara_rule(pipeline: Pipeline, tmp_path: Path):
-    sample = tmp_path / "eicar.com"
-    sample.write_bytes(EICAR)
+    sample = write_eicar(tmp_path / "eicar.com")
     report = pipeline.scan(sample)
     assert report.file.kind is FileKind.TEXT
     assert report.file.sha256
@@ -82,8 +84,7 @@ def test_extension_mismatch_detected(pipeline: Pipeline, tmp_path: Path):
 def test_reports_round_trip(pipeline: Pipeline, tmp_path: Path):
     from maltriage.reporters import available, get_renderer
 
-    sample = tmp_path / "eicar.com"
-    sample.write_bytes(EICAR)
+    sample = write_eicar(tmp_path / "eicar.com")
     report = pipeline.scan(sample)
 
     for name in available():
@@ -102,8 +103,7 @@ def test_reports_round_trip(pipeline: Pipeline, tmp_path: Path):
 
 
 def test_cache_records_history(pipeline: Pipeline, tmp_path: Path):
-    sample = tmp_path / "eicar.com"
-    sample.write_bytes(EICAR)
+    sample = write_eicar(tmp_path / "eicar.com")
     first = pipeline.scan(sample)
     second = pipeline.scan(sample)
     assert first.file.sha256 == second.file.sha256
@@ -113,7 +113,21 @@ def test_cache_records_history(pipeline: Pipeline, tmp_path: Path):
 
 
 def test_scan_options_disable_enrichment(pipeline: Pipeline, tmp_path: Path):
-    sample = tmp_path / "eicar.com"
-    sample.write_bytes(EICAR)
+    sample = write_eicar(tmp_path / "eicar.com")
     report = pipeline.scan(sample, ScanOptions(enrich=False))
     assert report.enrichment == []
+
+
+def test_unreadable_sample_is_a_clean_error(
+    pipeline: Pipeline, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A file the OS refuses to hand over must not crash the scan."""
+    sample = tmp_path / "held.txt"
+    sample.write_bytes(b"harmless")
+
+    def blocked(self, *args, **kwargs):
+        raise OSError(errno.EINVAL, "Invalid argument", str(self))
+
+    monkeypatch.setattr(Path, "read_bytes", blocked)
+    with pytest.raises(SafetyError, match="cannot read"):
+        pipeline.scan(sample)

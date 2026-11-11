@@ -11,8 +11,9 @@ from maltriage import memory
 from maltriage.cli import AUTO_JOBS, MAX_AUTO_JOBS, app
 from maltriage.config import get_settings
 
+from .sample_files import write_eicar
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 
 
 @pytest.fixture(autouse=True)
@@ -36,8 +37,7 @@ def test_version_command():
 
 def test_scan_writes_json_report(tmp_path: Path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
-    sample = tmp_path / "sample.txt"
-    sample.write_bytes(EICAR)
+    sample = write_eicar(tmp_path / "sample.txt")
 
     result = CliRunner().invoke(app, ["scan", str(sample), "--offline", "--format", "json"])
     assert result.exit_code == 0, result.stdout
@@ -51,8 +51,7 @@ def test_scan_writes_json_report(tmp_path: Path, monkeypatch):
 
 def test_fail_on_malicious_returns_two(tmp_path: Path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
-    sample = tmp_path / "sample.txt"
-    sample.write_bytes(EICAR)
+    sample = write_eicar(tmp_path / "sample.txt")
     # EICAR only reaches the suspicious band without VirusTotal, so gate at suspicious.
     result = CliRunner().invoke(
         app,
@@ -77,7 +76,7 @@ def test_batch_jobs_scans_every_file_in_order(tmp_path: Path, monkeypatch):
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     for index in range(8):
-        (inbox / f"sample{index}.txt").write_bytes(EICAR + f"#{index}".encode())
+        write_eicar(inbox / f"sample{index}.txt", f"#{index}".encode())
 
     result = CliRunner().invoke(
         app, ["batch", str(inbox), "--offline", "--jobs", "3", "--format", "json"]
@@ -101,7 +100,7 @@ def test_batch_parallel_matches_serial_scores(tmp_path: Path, monkeypatch):
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     for index in range(4):
-        (inbox / f"sample{index}.txt").write_bytes(EICAR + f"#{index}".encode())
+        write_eicar(inbox / f"sample{index}.txt", f"#{index}".encode())
 
     def scores(jobs: str, out: str) -> dict[str, int]:
         result = CliRunner().invoke(
@@ -125,7 +124,7 @@ def test_batch_refuses_jobs_that_cannot_fit_in_memory(tmp_path: Path, monkeypatc
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     for index in range(6):
-        (inbox / f"sample{index}.txt").write_bytes(EICAR + str(index).encode())
+        write_eicar(inbox / f"sample{index}.txt", str(index).encode())
 
     # 900 MiB free and ~640 MiB per worker leaves room for exactly one worker.
     monkeypatch.setattr(cli_module, "_available_memory_mb", lambda: 900)
@@ -140,7 +139,7 @@ def test_batch_clamps_a_default_jobs_value_to_memory(tmp_path: Path, monkeypatch
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     for index in range(6):
-        (inbox / f"sample{index}.txt").write_bytes(EICAR + str(index).encode())
+        write_eicar(inbox / f"sample{index}.txt", str(index).encode())
 
     monkeypatch.setattr(cli_module, "_available_memory_mb", lambda: 900)
     result = CliRunner().invoke(app, ["batch", str(inbox), "--offline", "--format", "json"])
@@ -151,10 +150,13 @@ def test_batch_clamps_a_default_jobs_value_to_memory(tmp_path: Path, monkeypatch
 
 def test_a_parallel_batch_records_a_worker_measurement(tmp_path: Path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
+    if cli_module._process_context() is None:
+        # Threads share one process, so there is no per-worker peak to record.
+        pytest.skip("per-worker peak memory needs forked processes")
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     for index in range(8):
-        (inbox / f"sample{index}.txt").write_bytes(EICAR + f"#{index}".encode())
+        write_eicar(inbox / f"sample{index}.txt", f"#{index}".encode())
 
     result = CliRunner().invoke(
         app, ["batch", str(inbox), "--offline", "--jobs", "2", "--format", "json"]
@@ -197,7 +199,7 @@ def test_batch_needs_two_files_per_worker(tmp_path: Path, monkeypatch):
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     for index in range(3):
-        (inbox / f"sample{index}.txt").write_bytes(EICAR + str(index).encode())
+        write_eicar(inbox / f"sample{index}.txt", str(index).encode())
 
     result = CliRunner().invoke(
         app, ["batch", str(inbox), "--offline", "--jobs", "8", "--format", "json"]
@@ -210,7 +212,7 @@ def test_batch_jobs_must_be_positive(tmp_path: Path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     inbox = tmp_path / "inbox"
     inbox.mkdir()
-    (inbox / "sample.txt").write_bytes(EICAR)
+    write_eicar(inbox / "sample.txt")
     result = CliRunner().invoke(app, ["batch", str(inbox), "--jobs", "0"])
     assert result.exit_code == 2
 

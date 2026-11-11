@@ -12,16 +12,22 @@ set -eu
 
 root=$(git rev-parse --show-toplevel)
 
+# Prefer the project virtualenv, then the first interpreter that actually runs.
+# On Windows `python` and `python3` can resolve to the Store alias stub: it exists
+# on PATH but fails when invoked, so a working interpreter has to be proven, not
+# assumed from `command -v`.
 python_bin=""
-for candidate in python3 python py; do
-    if command -v "$candidate" >/dev/null 2>&1; then
-        python_bin=$candidate
-        break
+for candidate in "$root/.venv/Scripts/python.exe" "$root/.venv/bin/python" python3 python py; do
+    if [ -x "$candidate" ] || command -v "$candidate" >/dev/null 2>&1; then
+        if "$candidate" -c "import sys" >/dev/null 2>&1; then
+            python_bin=$candidate
+            break
+        fi
     fi
 done
 
 if [ -z "$python_bin" ]; then
-    echo "pre-commit: no python interpreter found; the secret guard did not run" >&2
+    echo "pre-commit: no working python interpreter found; the secret guard did not run" >&2
     exit 0
 fi
 

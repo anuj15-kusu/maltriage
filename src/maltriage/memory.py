@@ -61,11 +61,12 @@ def available_bytes() -> int | None:
 def _windows_peak_bytes() -> int | None:
     """PeakWorkingSetSize of this process. Nothing is loaded from a sample."""
     import ctypes
+    from ctypes import wintypes
 
     class _Counters(ctypes.Structure):
         _fields_ = [
-            ("cb", ctypes.c_ulong),
-            ("page_faults", ctypes.c_ulong),
+            ("cb", wintypes.DWORD),
+            ("page_faults", wintypes.DWORD),
             ("peak_working_set", ctypes.c_size_t),
             ("working_set", ctypes.c_size_t),
             ("peak_paged_pool", ctypes.c_size_t),
@@ -76,11 +77,25 @@ def _windows_peak_bytes() -> int | None:
             ("peak_pagefile_usage", ctypes.c_size_t),
         ]
 
+    # GetCurrentProcess() returns the pseudo-handle (HANDLE)-1. Declaring the
+    # restype is what keeps it 64-bit on x64: as a plain int it is truncated to
+    # 32 bits on the way back into GetProcessMemoryInfo, which then fails.
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        get_info = getattr(kernel32, "K32GetProcessMemoryInfo", None)
+        if get_info is None:
+            get_info = ctypes.WinDLL("psapi", use_last_error=True).GetProcessMemoryInfo
+        get_info.argtypes = [wintypes.HANDLE, ctypes.POINTER(_Counters), wintypes.DWORD]
+        get_info.restype = wintypes.BOOL
+    except (AttributeError, OSError):
+        return None
+
     counters = _Counters()
     counters.cb = ctypes.sizeof(_Counters)
     try:
-        handle = ctypes.windll.kernel32.GetCurrentProcess()
-        ok = ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb)
+        handle = kernel32.GetCurrentProcess()
+        ok = get_info(handle, ctypes.byref(counters), counters.cb)
     except (AttributeError, OSError):
         return None
     return int(counters.peak_working_set) if ok else None

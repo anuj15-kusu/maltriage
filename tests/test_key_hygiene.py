@@ -16,9 +16,10 @@ from maltriage.enrichment.ratelimit import MinInterval
 from maltriage.pipeline import Pipeline
 from maltriage.reporters import available, get_renderer
 
+from .sample_files import write_eicar
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CANARY = "CANARY_key_hygiene_test_value"
-EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 
 PAYLOAD = {
     "data": {
@@ -63,8 +64,7 @@ def test_key_is_sent_but_never_persisted(tmp_path: Path, recorder: dict[str, str
         vt_api_key=CANARY,
         mb_auth_key=None,
     )
-    sample = tmp_path / "eicar.txt"
-    sample.write_bytes(EICAR)
+    sample = write_eicar(tmp_path / "eicar.txt")
 
     pipeline = Pipeline(settings=settings)
     report = pipeline.scan(sample)
@@ -95,8 +95,7 @@ def test_offline_mode_skips_the_key(tmp_path: Path, monkeypatch):
         vt_api_key=CANARY,
         mb_auth_key=None,
     )
-    sample = tmp_path / "eicar.txt"
-    sample.write_bytes(EICAR)
+    sample = write_eicar(tmp_path / "eicar.txt")
 
     pipeline = Pipeline(settings=settings)
     report = pipeline.scan(sample)

@@ -56,7 +56,14 @@ class Pipeline:
         timings: dict[str, float] = {}
 
         size = check_file(path, self.settings.max_file_mb)
-        data = path.read_bytes()
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            # Windows security products block reads of a sample they already detected
+            # with WinError 87 (EINVAL): the path exists, but nothing can open it.
+            blocked = exc.errno == 22 or getattr(exc, "winerror", None) == 87
+            hint = " (a security product may be holding the file)" if blocked else ""
+            raise SafetyError(f"cannot read {path}: {exc}{hint}") from exc
         markup = perf_counter()
         timings["intake"] = round(markup - started, 3)
 
