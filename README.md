@@ -34,6 +34,8 @@ maltriage scan sample.dll --offline                 # no external API calls
 maltriage scan ./inbox -r                           # batch a directory
 maltriage rules lint rules                          # compile-check YARA rules
 maltriage db stats                                  # local scan history
+maltriage doctor                                    # environment + config check
+maltriage doctor --check-api                        # also validate VT_API_KEY
 ```
 
 `--fail-on suspicious` (or `likely_malicious` / `malicious`) makes the command exit 2,

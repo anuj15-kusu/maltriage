@@ -287,6 +287,37 @@ def vt_check(
 
 
 @app.command()
+def doctor(
+    check_api: bool = typer.Option(
+        False, "--check-api", help="Spend one VirusTotal request to validate the key."
+    ),
+) -> None:
+    """Check Python, configuration, YARA rules, cache and API keys."""
+    from maltriage.doctor import FAIL, WARN, run_checks
+
+    settings = get_settings()
+    checks = run_checks(settings, check_api=check_api)
+
+    style = {"ok": "green", "warn": "yellow", "fail": "red"}
+    table = Table(title="maltriage doctor")
+    table.add_column("Check")
+    table.add_column("Status")
+    table.add_column("Detail", overflow="fold")
+    for check in checks:
+        table.add_row(
+            check.name, f"[{style.get(check.status, 'white')}]{check.status}[/]", check.detail
+        )
+    console.print(table)
+
+    failures = [c for c in checks if c.status == FAIL]
+    warnings = [c for c in checks if c.status == WARN]
+    if failures:
+        console.print(f"[red]{len(failures)} failing check(s)[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]all checks passed[/green] ({len(warnings)} warning(s))")
+
+
+@app.command()
 def version() -> None:
     """Print the version."""
     console.print(f"maltriage {__version__}")
