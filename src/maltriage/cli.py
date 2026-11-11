@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import multiprocessing
+import os
+import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +49,21 @@ SEVERITY_STYLE = {
     "info": "dim",
 }
 BAND_RANK = {"clean": 0, "suspicious": 1, "likely_malicious": 2, "malicious": 3}
+MAX_AUTO_JOBS = 8
+# One worker holds the sample plus the parser's copies of it (strings, YARA view).
+WORKER_FOOTPRINT_FACTOR = 2.5
+
+
+def _auto_jobs() -> int:
+    """Cores this process may use, capped so a default batch stays modest."""
+    try:
+        cores = len(os.sched_getaffinity(0))  # honours affinity and cgroup limits
+    except AttributeError:
+        cores = os.cpu_count() or 1
+    return max(1, min(cores, MAX_AUTO_JOBS))
+
+
+AUTO_JOBS = _auto_jobs()
 
 
 def _version_callback(value: bool) -> None:
@@ -121,6 +138,7 @@ def scan(
 
 @app.command()
 def batch(
+    ctx: typer.Context,
     directory: Path = typer.Argument(
         ..., exists=True, file_okay=False, help="Directory to triage."
     ),
@@ -128,11 +146,14 @@ def batch(
     out: Path = typer.Option(Path("out"), "--out", "-o", help="Report output directory."),
     recursive: bool = typer.Option(False, "--recursive", "-r", help="Walk sub-directories."),
     jobs: int = typer.Option(
-        1,
+        AUTO_JOBS,
         "--jobs",
         "-j",
         min=1,
-        help="Worker processes to triage with (each holds one sample in memory).",
+        help=(
+            "Worker processes to triage with (each holds one sample in memory). "
+            f"Defaults to min(cores, {MAX_AUTO_JOBS}); refused when it cannot fit in RAM."
+        ),
     ),
     offline: bool = typer.Option(False, "--offline", help="Never call external APIs."),
 ) -> None:
@@ -157,7 +178,7 @@ def batch(
     table.add_column("Top finding", overflow="fold")
 
     options = ScanOptions(enrich=not settings.offline)
-    workers = max(1, min(jobs, len(candidates)))
+    workers = _worker_count(ctx, jobs, len(candidates), settings)
     if workers > 1:
         console.print(f"[dim]scanning with {workers} worker(s)[/dim]")
 
@@ -450,6 +471,88 @@ def _scan_worker(task: tuple[str, ScanOptions]) -> _Outcome:
     pipeline = _WORKER
     assert pipeline is not None, "worker pool started without its pipeline"
     return _scan_one(pipeline, Path(path_value), options)
+
+
+def _available_memory_mb() -> int | None:
+    """Free memory in MiB, or None when the platform has no cheap probe."""
+    if sys.platform == "win32":
+        return _windows_free_memory_mb()
+
+    meminfo = Path("/proc/meminfo")
+    if meminfo.is_file():
+        for line in meminfo.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+
+    try:
+        pages = os.sysconf("SC_AVPHYS_PAGES")
+        size = os.sysconf("SC_PAGE_SIZE")
+    except (AttributeError, OSError, ValueError):
+        return None
+    if pages <= 0 or size <= 0:
+        return None
+    return int(pages * size) // (1024 * 1024)
+
+
+def _windows_free_memory_mb() -> int | None:
+    """Read free physical memory. Nothing is loaded, imported or executed for a sample."""
+    import ctypes
+
+    class _MemoryStatus(ctypes.Structure):
+        _fields_ = [
+            ("length", ctypes.c_ulong),
+            ("memory_load", ctypes.c_ulong),
+            ("total_phys", ctypes.c_ulonglong),
+            ("avail_phys", ctypes.c_ulonglong),
+            ("total_page_file", ctypes.c_ulonglong),
+            ("avail_page_file", ctypes.c_ulonglong),
+            ("total_virtual", ctypes.c_ulonglong),
+            ("avail_virtual", ctypes.c_ulonglong),
+            ("avail_extended_virtual", ctypes.c_ulonglong),
+        ]
+
+    status = _MemoryStatus()
+    status.length = ctypes.sizeof(_MemoryStatus)
+    try:
+        ok = ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
+    except (AttributeError, OSError):
+        return None
+    return int(status.avail_phys) // (1024 * 1024) if ok else None
+
+
+def _worker_footprint_mb(settings: Settings) -> int:
+    """Worst case for one worker: the sample plus the parser's copies of it."""
+    return max(64, int(settings.max_file_mb * WORKER_FOOTPRINT_FACTOR))
+
+
+def _memory_ceiling(settings: Settings) -> tuple[int | None, int, int | None]:
+    """(workers that fit in 80% of free memory, per-worker MiB, free MiB)."""
+    footprint = _worker_footprint_mb(settings)
+    available = _available_memory_mb()
+    if available is None:
+        return None, footprint, None
+    return max(1, int(available * 0.8) // footprint), footprint, available
+
+
+def _worker_count(ctx: typer.Context, jobs: int, file_count: int, settings: Settings) -> int:
+    """Resolve --jobs to an effective worker count, bounded by RAM and file count."""
+    requested = max(1, jobs)
+    ceiling, footprint, available = _memory_ceiling(settings)
+    if ceiling is not None and requested > ceiling:
+        source = ctx.get_parameter_source("jobs")
+        if getattr(source, "name", "") == "COMMANDLINE":
+            console.print(
+                f"[red]--jobs {requested} would not fit:[/red] about {footprint} MiB per "
+                f"worker and {available} MiB free. Use --jobs {ceiling} or lower "
+                "MALTRIAGE_MAX_FILE_MB."
+            )
+            raise typer.Exit(code=2)
+        console.print(f"[dim]--jobs {requested} limited to {ceiling} by free memory[/dim]")
+        requested = ceiling
+
+    # Forking a worker costs ~0.4 s of imports and YARA compilation, so a batch
+    # needs at least two files per worker before parallelism pays for itself.
+    return max(1, min(requested, file_count // 2))
 
 
 def _process_context() -> multiprocessing.context.BaseContext | None:

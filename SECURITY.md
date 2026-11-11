@@ -76,14 +76,21 @@ reported — **never run, loaded, imported or unpacked**.
 Concretely:
 
 - **No process is spawned for a sample.** `src/` contains no `subprocess`, `os.system`,
-  `os.popen`, `ctypes`, `eval` or `exec` call. Verify it yourself:
+  `os.popen`, `eval` or `exec` call. Verify it yourself:
 
   ```bash
-  grep -rnE '\b(eval|exec)\(|os\.system|os\.popen|subprocess|ctypes' src/
+  grep -rnE '\b(eval|exec)\(|os\.system|os\.popen|subprocess' src/
   ```
 
   The command produces no output. (`detect_autoexec` in `parsers/office.py` is an
   oletools call that *reads* an autoexec macro, not an `exec`.)
+- **`ctypes` is confined to one Windows-only helper.** `_windows_free_memory_mb()` in
+  `cli.py` calls `GlobalMemoryStatusEx` to read free physical memory before sizing the
+  `--jobs` worker pool. No other module imports it, and it loads nothing from a sample:
+
+  ```bash
+  grep -rln ctypes src/     # prints only src/maltriage/cli.py
+  ```
 - **No sample is imported or unpickled.** No `pickle`, `marshal` or `runpy` in `src/`.
   `importlib` appears only in `registry.py`, which imports this project's own parser and
   analyzer packages from fixed names so their decorators register — never a name taken

@@ -42,12 +42,17 @@ maltriage doctor --check-api                        # also validate VT_API_KEY
 which is what you want in CI or a cron job.
 
 `--jobs N` triages N files at once using forked worker processes (one pipeline and one
-SQLite connection each). Threads were measured first and bought nothing, because the
-analysis is CPU bound; processes cut a 24-file, 5 MB batch from 7.8 s to 3.5 s on four
-workers. Each worker holds one sample in memory, so keep the count modest relative to
-`MALTRIAGE_MAX_FILE_MB`. VirusTotal pacing is per process, so the limiter is widened by
-the worker count to keep the aggregate inside the free tier's 4 requests per minute. On a
-platform without `fork`, the pool falls back to threads.
+SQLite connection each). It defaults to `min(cores, 8)`, and only engages when there are at
+least two files per worker, because forking a worker costs about 0.4 s of imports and YARA
+compilation.
+
+Threads were measured first and bought nothing (0.99x on 24 files) because the analysis is
+CPU bound; processes cut the same 24-file, 5 MB batch from 7.8 s to 3.5 s. One worker's
+worst case is `2.5 x MALTRIAGE_MAX_FILE_MB` (the sample plus the parser's copies), so a
+`--jobs` value that cannot fit in 80% of free memory is **refused** with exit code 2, and a
+default value is clamped with a note. VirusTotal pacing is per process, so the limiter is
+widened by the worker count to keep the aggregate inside the free tier's 4 requests per
+minute. On a platform without `fork` the pool falls back to threads.
 
 ## API keys
 
