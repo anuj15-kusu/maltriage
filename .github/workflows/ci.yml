@@ -45,6 +45,35 @@ jobs:
       - name: Tests
         run: pytest -q
 
+  test-windows:
+    name: windows setup + tests (python 3.12)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The same one-command path a user takes, on a clean machine.
+      - name: Run setup.ps1
+        shell: pwsh
+        run: ./setup.ps1
+
+      - name: Lint
+        shell: pwsh
+        run: |
+          ./.venv/Scripts/ruff.exe check src tests tools
+          ./.venv/Scripts/ruff.exe format --check src tests tools
+
+      - name: Secret guard
+        shell: pwsh
+        run: ./.venv/Scripts/python.exe tools/secret_guard.py
+
+      - name: Tests
+        shell: pwsh
+        run: ./.venv/Scripts/python.exe -m pytest -q
+
   container:
     name: container build + hardened run
     runs-on: ubuntu-latest
