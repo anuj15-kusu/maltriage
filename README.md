@@ -138,5 +138,7 @@ hardened run flags and checks the report it wrote back to the host.
 
 ## Safety
 
-Run only on samples you are authorized to analyse. Never commit live malware;
+Run only on samples you are authorized to analyse. The threat model, the
+never-execute guarantee and the vulnerability reporting process are in
+[SECURITY.md](SECURITY.md). Never commit live malware;
 `rules/local/` and `samples/` are gitignored on purpose.
