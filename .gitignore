@@ -35,7 +35,8 @@ rules/local/*
 !rules/local/.gitkeep
 
 # Live malware samples — never commit these
-samples/
+samples/*
+!samples/.gitkeep
 *.exe
 *.dll
 *.sys

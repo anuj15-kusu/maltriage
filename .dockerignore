@@ -1,0 +1,37 @@
+# Never bake secrets into the image
+.env
+.env.*
+!.env.example
+
+# Never bake samples or generated reports into the image
+samples/
+demo-reports/
+out/
+.cache/
+*.zip
+*.log
+
+# Local development state
+.git/
+.gitignore
+.venv/
+.venv_*/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Not needed at runtime
+tests/
+docs/
+.github/
+Dockerfile
+docker-compose.yml
+.dockerignore

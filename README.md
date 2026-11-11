@@ -72,6 +72,41 @@ the command from, so `maltriage` behaves the same from any folder:
 The project root's `.env` wins over a `.env` in the working directory, and OS
 environment variables win over both. `maltriage doctor` prints the file it loaded.
 
+## Isolated container
+
+Parsers are the only attack surface in this tool, so the container exists to keep
+that work away from the host: unprivileged user, read-only root filesystem, no
+capabilities, no network, bounded memory and PIDs.
+
+```bash
+docker build -t maltriage:latest .
+mkdir -p samples out
+cp /path/to/suspicious.exe samples/
+
+docker compose run --rm triage                       # batch ./samples, offline
+docker compose run --rm triage scan /samples/x.exe -o /work/out -f json,html
+```
+
+Without compose, the same guarantees by hand:
+
+```bash
+docker run --rm \
+  --network none --read-only --tmpfs /tmp \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --pids-limit 256 --memory 1g -u 10001:10001 \
+  -v "$PWD/samples:/samples:ro" -v "$PWD/out:/work/out" \
+  maltriage:latest scan /samples/sample.exe -o /work/out
+```
+
+Notes:
+
+- Samples mount read-only at `/samples`; only `out/` and the cache volume are writable.
+- Enrichment needs egress: set `network_mode: bridge` and `env_file: [.env]` in the
+  compose file, or pass `--env-file .env` to `docker run`. `.env` is in
+  `.dockerignore`, so a key never ends up inside the image.
+- `--read-only` needs the `/tmp` tmpfs (already in the compose file) because Python
+  writes temp files there.
+
 ## Safety
 
 Run only on samples you are authorized to analyse. Never commit live malware;
