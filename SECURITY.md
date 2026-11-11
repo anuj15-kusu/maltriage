@@ -84,12 +84,13 @@ Concretely:
 
   The command produces no output. (`detect_autoexec` in `parsers/office.py` is an
   oletools call that *reads* an autoexec macro, not an `exec`.)
-- **`ctypes` is confined to one Windows-only helper.** `_windows_free_memory_mb()` in
-  `cli.py` calls `GlobalMemoryStatusEx` to read free physical memory before sizing the
-  `--jobs` worker pool. No other module imports it, and it loads nothing from a sample:
+- **`ctypes` is confined to two Windows-only probes.** `memory.py` calls
+  `GlobalMemoryStatusEx` for free memory and `GetProcessMemoryInfo` for a worker's peak
+  resident size; both only size the `--jobs` pool. No other module imports it, and it
+  loads nothing from a sample:
 
   ```bash
-  grep -rln ctypes src/     # prints only src/maltriage/cli.py
+  grep -rln ctypes src/     # prints only src/maltriage/memory.py
   ```
 - **No sample is imported or unpickled.** No `pickle`, `marshal` or `runpy` in `src/`.
   `importlib` appears only in `registry.py`, which imports this project's own parser and

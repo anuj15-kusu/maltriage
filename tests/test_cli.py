@@ -7,6 +7,7 @@ import pytest
 from typer.testing import CliRunner
 
 from maltriage import cli as cli_module
+from maltriage import memory
 from maltriage.cli import AUTO_JOBS, MAX_AUTO_JOBS, app
 from maltriage.config import get_settings
 
@@ -146,6 +147,49 @@ def test_batch_clamps_a_default_jobs_value_to_memory(tmp_path: Path, monkeypatch
     assert result.exit_code == 0, result.stdout
     assert "limited to 1 by free memory" in result.stdout
     assert len(list((tmp_path / "out").glob("*.json"))) == 6
+
+
+def test_a_parallel_batch_records_a_worker_measurement(tmp_path: Path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    for index in range(8):
+        (inbox / f"sample{index}.txt").write_bytes(EICAR + f"#{index}".encode())
+
+    result = CliRunner().invoke(
+        app, ["batch", str(inbox), "--offline", "--jobs", "2", "--format", "json"]
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "measured" in result.stdout
+
+    measurement = memory.load(get_settings().cache_path)
+    assert measurement is not None
+    assert measurement.peak_bytes > 0
+    assert measurement.fixed_bytes > 0
+    assert measurement.sample_bytes > 0
+    assert measurement.workers >= 2
+
+
+def test_the_footprint_switches_from_estimate_to_measurement(tmp_path: Path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    settings = get_settings()
+
+    estimated, source = cli_module._worker_footprint_mb(settings, 5 * 1024 * 1024)
+    assert (estimated, source) == (640, "estimated")
+
+    memory.save(
+        settings.cache_path,
+        memory.build(
+            baseline_bytes=50 * 1024 * 1024,
+            peak_bytes=60 * 1024 * 1024,
+            sample_bytes=5 * 1024 * 1024,
+            workers=2,
+        ),
+    )
+    measured, source = cli_module._worker_footprint_mb(settings, 5 * 1024 * 1024)
+    assert source == "measured"
+    assert measured < estimated
+    assert measured == int((50 + 2.0 * 5) * memory.HEADROOM)
 
 
 def test_batch_needs_two_files_per_worker(tmp_path: Path, monkeypatch):

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import multiprocessing
 import os
-import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from maltriage import __version__
+from maltriage import __version__, memory
 from maltriage.config import Settings, get_settings
 from maltriage.models import Report
 from maltriage.pipeline import Pipeline, ScanOptions
@@ -50,7 +49,7 @@ SEVERITY_STYLE = {
 }
 BAND_RANK = {"clean": 0, "suspicious": 1, "likely_malicious": 2, "malicious": 3}
 MAX_AUTO_JOBS = 8
-# One worker holds the sample plus the parser's copies of it (strings, YARA view).
+# Fallback until a real batch has been measured: the sample plus parser copies.
 WORKER_FOOTPRINT_FACTOR = 2.5
 
 
@@ -178,7 +177,7 @@ def batch(
     table.add_column("Top finding", overflow="fold")
 
     options = ScanOptions(enrich=not settings.offline)
-    workers = _worker_count(ctx, jobs, len(candidates), settings)
+    workers = _worker_count(ctx, jobs, candidates, settings)
     if workers > 1:
         console.print(f"[dim]scanning with {workers} worker(s)[/dim]")
 
@@ -191,6 +190,7 @@ def batch(
             pipeline.close()
     else:
         outcomes = _scan_many(candidates, options, workers, settings)
+        _record_measurement(settings, outcomes)
 
     for outcome in outcomes:
         if outcome.report is None:
@@ -440,9 +440,12 @@ class _Outcome:
     item: Path
     report: Report | None = None
     error: str | None = None
+    peak_bytes: int | None = None
+    baseline_bytes: int | None = None
 
 
 _WORKER: Pipeline | None = None
+_WORKER_BASELINE: int | None = None
 
 
 def _scan_one(pipeline: Pipeline, item: Path, options: ScanOptions) -> _Outcome:
@@ -454,7 +457,7 @@ def _scan_one(pipeline: Pipeline, item: Path, options: ScanOptions) -> _Outcome:
 
 def _init_worker(payload: dict, vt_interval: float) -> None:
     """Give each worker process its own pipeline and SQLite connection."""
-    global _WORKER
+    global _WORKER, _WORKER_BASELINE
     from maltriage.cache import Cache
     from maltriage.enrichment import virustotal as vt_module
     from maltriage.enrichment.ratelimit import MinInterval
@@ -464,87 +467,56 @@ def _init_worker(payload: dict, vt_interval: float) -> None:
     # tier's 4 requests per minute.
     vt_module._pacer = MinInterval(max(worker_settings.vt_min_interval, vt_interval))
     _WORKER = Pipeline(settings=worker_settings, cache=Cache(worker_settings.cache_path))
+    _WORKER_BASELINE = memory.peak_rss_bytes()
 
 
 def _scan_worker(task: tuple[str, ScanOptions]) -> _Outcome:
     path_value, options = task
     pipeline = _WORKER
     assert pipeline is not None, "worker pool started without its pipeline"
-    return _scan_one(pipeline, Path(path_value), options)
+    outcome = _scan_one(pipeline, Path(path_value), options)
+    outcome.peak_bytes = memory.peak_rss_bytes()
+    outcome.baseline_bytes = _WORKER_BASELINE
+    return outcome
 
 
 def _available_memory_mb() -> int | None:
     """Free memory in MiB, or None when the platform has no cheap probe."""
-    if sys.platform == "win32":
-        return _windows_free_memory_mb()
-
-    meminfo = Path("/proc/meminfo")
-    if meminfo.is_file():
-        for line in meminfo.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) // 1024
-
-    try:
-        pages = os.sysconf("SC_AVPHYS_PAGES")
-        size = os.sysconf("SC_PAGE_SIZE")
-    except (AttributeError, OSError, ValueError):
-        return None
-    if pages <= 0 or size <= 0:
-        return None
-    return int(pages * size) // (1024 * 1024)
+    available = memory.available_bytes()
+    return None if available is None else available // (1024 * 1024)
 
 
-def _windows_free_memory_mb() -> int | None:
-    """Read free physical memory. Nothing is loaded, imported or executed for a sample."""
-    import ctypes
-
-    class _MemoryStatus(ctypes.Structure):
-        _fields_ = [
-            ("length", ctypes.c_ulong),
-            ("memory_load", ctypes.c_ulong),
-            ("total_phys", ctypes.c_ulonglong),
-            ("avail_phys", ctypes.c_ulonglong),
-            ("total_page_file", ctypes.c_ulonglong),
-            ("avail_page_file", ctypes.c_ulonglong),
-            ("total_virtual", ctypes.c_ulonglong),
-            ("avail_virtual", ctypes.c_ulonglong),
-            ("avail_extended_virtual", ctypes.c_ulonglong),
-        ]
-
-    status = _MemoryStatus()
-    status.length = ctypes.sizeof(_MemoryStatus)
-    try:
-        ok = ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
-    except (AttributeError, OSError):
-        return None
-    return int(status.avail_phys) // (1024 * 1024) if ok else None
+def _worker_footprint_mb(settings: Settings, sample_bytes: int) -> tuple[int, str]:
+    """Per-worker memory in MiB, and whether it was measured or estimated."""
+    measurement = memory.load(settings.cache_path)
+    if measurement is not None:
+        return measurement.expected_bytes(sample_bytes) // (1024 * 1024), "measured"
+    return max(64, int(settings.max_file_mb * WORKER_FOOTPRINT_FACTOR)), "estimated"
 
 
-def _worker_footprint_mb(settings: Settings) -> int:
-    """Worst case for one worker: the sample plus the parser's copies of it."""
-    return max(64, int(settings.max_file_mb * WORKER_FOOTPRINT_FACTOR))
-
-
-def _memory_ceiling(settings: Settings) -> tuple[int | None, int, int | None]:
-    """(workers that fit in 80% of free memory, per-worker MiB, free MiB)."""
-    footprint = _worker_footprint_mb(settings)
+def _memory_ceiling(
+    settings: Settings, sample_bytes: int
+) -> tuple[int | None, int, int | None, str]:
+    """(workers that fit in 80% of free memory, per-worker MiB, free MiB, source)."""
+    footprint, source = _worker_footprint_mb(settings, sample_bytes)
     available = _available_memory_mb()
     if available is None:
-        return None, footprint, None
-    return max(1, int(available * 0.8) // footprint), footprint, available
+        return None, footprint, None, source
+    return max(1, int(available * 0.8) // footprint), footprint, available, source
 
 
-def _worker_count(ctx: typer.Context, jobs: int, file_count: int, settings: Settings) -> int:
+def _worker_count(ctx: typer.Context, jobs: int, candidates: list[Path], settings: Settings) -> int:
     """Resolve --jobs to an effective worker count, bounded by RAM and file count."""
+    sample_bytes = max((item.stat().st_size for item in candidates), default=0)
     requested = max(1, jobs)
-    ceiling, footprint, available = _memory_ceiling(settings)
+    ceiling, footprint, available, source = _memory_ceiling(settings, sample_bytes)
     if ceiling is not None and requested > ceiling:
-        source = ctx.get_parameter_source("jobs")
-        if getattr(source, "name", "") == "COMMANDLINE":
+        given = ctx.get_parameter_source("jobs")
+        if getattr(given, "name", "") == "COMMANDLINE":
             console.print(
                 f"[red]--jobs {requested} would not fit:[/red] about {footprint} MiB per "
-                f"worker and {available} MiB free. Use --jobs {ceiling} or lower "
-                "MALTRIAGE_MAX_FILE_MB."
+                f"worker ({source}) and {available} MiB free. Use --jobs {ceiling} or "
+                "lower MALTRIAGE_MAX_FILE_MB."
             )
             raise typer.Exit(code=2)
         console.print(f"[dim]--jobs {requested} limited to {ceiling} by free memory[/dim]")
@@ -552,7 +524,28 @@ def _worker_count(ctx: typer.Context, jobs: int, file_count: int, settings: Sett
 
     # Forking a worker costs ~0.4 s of imports and YARA compilation, so a batch
     # needs at least two files per worker before parallelism pays for itself.
-    return max(1, min(requested, file_count // 2))
+    return max(1, min(requested, len(candidates) // 2))
+
+
+def _record_measurement(settings: Settings, outcomes: list[_Outcome]) -> None:
+    """Store what the workers really used, so the next run does not have to guess."""
+    peaks = [outcome.peak_bytes for outcome in outcomes if outcome.peak_bytes]
+    if not peaks:
+        return
+    baselines = [outcome.baseline_bytes for outcome in outcomes if outcome.baseline_bytes]
+    sample_bytes = max((outcome.item.stat().st_size for outcome in outcomes), default=0)
+    measurement = memory.build(
+        baseline_bytes=min(baselines) if baselines else 0,
+        peak_bytes=max(peaks),
+        sample_bytes=sample_bytes,
+        workers=len(peaks),
+        previous=memory.load(settings.cache_path),
+    )
+    if memory.save(settings.cache_path, measurement) is not None:
+        console.print(
+            f"[dim]measured {measurement.peak_bytes // (1024 * 1024)} MiB peak per worker "
+            f"(largest sample {sample_bytes // 1024} KiB); future --jobs sizing uses it[/dim]"
+        )
 
 
 def _process_context() -> multiprocessing.context.BaseContext | None:

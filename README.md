@@ -47,12 +47,19 @@ least two files per worker, because forking a worker costs about 0.4 s of import
 compilation.
 
 Threads were measured first and bought nothing (0.99x on 24 files) because the analysis is
-CPU bound; processes cut the same 24-file, 5 MB batch from 7.8 s to 3.5 s. One worker's
-worst case is `2.5 x MALTRIAGE_MAX_FILE_MB` (the sample plus the parser's copies), so a
-`--jobs` value that cannot fit in 80% of free memory is **refused** with exit code 2, and a
-default value is clamped with a note. VirusTotal pacing is per process, so the limiter is
-widened by the worker count to keep the aggregate inside the free tier's 4 requests per
-minute. On a platform without `fork` the pool falls back to threads.
+CPU bound; processes cut the same 24-file, 5 MB batch from 7.8 s to 3.5 s.
+
+The memory ceiling uses measurement, not a guess. Every worker reports its own peak
+resident set size; one batch splits that peak into a pre-scan baseline plus a per-byte
+slope, and a second batch of clearly larger files pins the line exactly
+(`.cache/worker_memory.json`). Measured here: about 50 MiB fixed plus two bytes of RAM per
+byte of sample, so a 20 MiB batch costs roughly 95 MiB per worker, where the old
+`2.5 x MALTRIAGE_MAX_FILE_MB` estimate claimed 640 MiB. Until a parallel batch has run, that
+estimate is the fallback. A `--jobs` value that cannot fit in 80% of free memory is
+**refused** with exit code 2, and the message says whether the number was measured or
+estimated; a default value is clamped with a note. VirusTotal pacing is per process, so the
+limiter is widened by the worker count. On a platform without `fork` the pool falls back to
+threads.
 
 ## API keys
 
