@@ -82,3 +82,46 @@ def test_cli_doctor_exits_zero(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0, result.stdout
     assert "all checks passed" in result.stdout
     assert "VT_API_KEY" in result.stdout
+
+
+def test_api_check_bypasses_the_cache(tmp_path: Path, monkeypatch):
+    """A cached lookup would never prove the key works, so a request must be made."""
+    from maltriage.cache import Cache
+    from maltriage.doctor import EICAR_SHA256
+    from maltriage.enrichment import virustotal as vt_module
+    from maltriage.enrichment.ratelimit import MinInterval
+
+    calls = {"count": 0}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {
+                "data": {
+                    "attributes": {
+                        "last_analysis_stats": {
+                            "malicious": 1,
+                            "suspicious": 0,
+                            "undetected": 5,
+                            "harmless": 0,
+                        }
+                    }
+                }
+            }
+
+    def fake_get(url, headers=None, timeout=None):
+        calls["count"] += 1
+        return FakeResponse()
+
+    monkeypatch.setattr(vt_module, "_pacer", MinInterval(0))
+    monkeypatch.setattr(vt_module.requests, "get", fake_get)
+
+    settings = _settings(tmp_path, offline=False, vt_api_key=CANARY)
+    cache = Cache(settings.cache_path)
+    cache.put_vt(EICAR_SHA256, 1, 0, 6, {"cached": True})
+    cache.close()
+
+    api = next(c for c in run_checks(settings, check_api=True) if c.name == "VirusTotal API")
+    assert api.status == OK
+    assert calls["count"] == 1, "doctor must not answer from cache"

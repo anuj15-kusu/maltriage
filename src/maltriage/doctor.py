@@ -123,6 +123,8 @@ def _api_check(settings: Settings) -> Check:
 
     cache = Cache(settings.cache_path)
     try:
+        # A cached answer would not prove the key works, so always ask the API.
+        cache.drop_vt(EICAR_SHA256)
         ctx = SampleContext(
             path=Path("<doctor>"),
             size=0,
