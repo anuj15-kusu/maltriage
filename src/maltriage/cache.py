@@ -71,22 +71,37 @@ class Cache:
 
     def __init__(self, path: Path | None, enabled: bool = True) -> None:
         self.enabled = enabled
+        # Why the cache is off when the caller did not ask for that, so the CLI and
+        # doctor can say so instead of silently losing history.
+        self.reason: str | None = None
         self._lock = threading.Lock()
         self._conn: sqlite3.Connection | None = None
         if not enabled:
             return
-        if path is not None:
-            path.parent.mkdir(parents=True, exist_ok=True)
-        # A longer busy timeout keeps parallel worker processes from failing with
-        # "database is locked" when they write at the same moment.
-        self._conn = sqlite3.connect(
-            str(path) if path else ":memory:", check_same_thread=False, timeout=30
-        )
-        self._conn.row_factory = sqlite3.Row
-        with self._lock:
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.executescript(SCHEMA)
-            self._conn.commit()
+        try:
+            if path is not None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            # A longer busy timeout keeps parallel worker processes from failing with
+            # "database is locked" when they write at the same moment.
+            self._conn = sqlite3.connect(
+                str(path) if path else ":memory:", check_same_thread=False, timeout=30
+            )
+            self._conn.row_factory = sqlite3.Row
+            with self._lock:
+                self._conn.execute("PRAGMA journal_mode=WAL")
+                self._conn.executescript(SCHEMA)
+                self._conn.commit()
+        except (OSError, sqlite3.Error) as exc:
+            # A read-only root filesystem, a full disk or a permissions problem must
+            # not take the scan down: the cache is an optimisation, not a requirement.
+            self.reason = f"{path}: {exc}" if path is not None else str(exc)
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except sqlite3.Error:  # pragma: no cover - closing a broken handle
+                    pass
+                self._conn = None
+            self.enabled = False
 
     # --- lifecycle -----------------------------------------------------
     def close(self) -> None:

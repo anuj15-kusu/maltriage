@@ -116,6 +116,8 @@ def scan(
     from maltriage.cache import Cache
 
     cache = Cache(settings.cache_path, enabled=not no_cache)
+    if cache.reason:
+        console.print(f"[yellow]cache disabled:[/yellow] {cache.reason}")
     pipeline = Pipeline(settings=settings, cache=cache)
     try:
         report = pipeline.scan(
