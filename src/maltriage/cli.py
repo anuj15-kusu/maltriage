@@ -372,7 +372,11 @@ def version() -> None:
 # --- helpers -----------------------------------------------------------
 def _write_reports(report: Report, formats: str, out: Path, *, defang: bool) -> list[Path]:
     selected = [name.strip() for name in formats.split(",") if name.strip()]
-    out.mkdir(parents=True, exist_ok=True)
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        console.print(f"[red]cannot use report directory {out}: {exc.strerror or exc}[/red]")
+        raise typer.Exit(code=2) from exc
     stem = f"{report.file.sha256[:12]}_{Path(report.file.name).stem or 'sample'}"
     paths: list[Path] = []
     for name in selected:
@@ -382,7 +386,11 @@ def _write_reports(report: Report, formats: str, out: Path, *, defang: bool) -> 
             console.print(f"[red]{exc}[/red]")
             raise typer.Exit(code=4) from exc
         target = out / f"{stem}{renderer.suffix}"
-        target.write_text(renderer.render(report, defang=defang), encoding="utf-8")
+        try:
+            target.write_text(renderer.render(report, defang=defang), encoding="utf-8")
+        except OSError as exc:
+            console.print(f"[red]cannot write {target}: {exc.strerror or exc}[/red]")
+            raise typer.Exit(code=2) from exc
         paths.append(target)
     return paths
 
