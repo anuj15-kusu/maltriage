@@ -93,6 +93,9 @@ jobs:
       - name: Triage a sample inside the container
         run: |
           mkdir -p samples out
+          # The container runs as uid 10001, so the mounted output directory must
+          # be writable by it (a host mkdir is owned by the runner user).
+          chmod 777 out
           python - <<'PY'
           from pathlib import Path
 
